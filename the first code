@@ -1,0 +1,175 @@
+#the first code
+<idea>
+making a sign language detector that can be applied using mediapipe, opencv, numpy, pickles, sklearn
+<description>
+    <important note>this is a modifyable code not the final executionable code
+
+<code>
+part-1:data collection
+import cv2
+import mediapipe as mp
+import numpy as np
+import pickle
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+
+# Data to be collected
+data = []
+labels = []
+
+# Open camera
+cap = cv2.VideoCapture(0)
+
+print("Starting data collection. Press 'q' to quit.")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Flip the frame horizontally for a later selfie-view display
+    frame = cv2.flip(frame, 1)
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Process the frame and find hands
+    results = hands.process(frame_rgb)
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # Draw hand landmarks
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            
+            # Extract landmarks and normalize them
+            landmarks_data = []
+            x_coords = [lm.x for lm in hand_landmarks.landmark]
+            y_coords = [lm.y for lm in hand_landmarks.landmark]
+            
+            # Base point (wrist) for relative coordinates
+            base_x, base_y = x_coords[0], y_coords[0]
+
+            for i in range(len(hand_landmarks.landmark)):
+                # Normalize relative to the wrist and flatten
+                landmarks_data.append(x_coords[i] - base_x)
+                landmarks_data.append(y_coords[i] - base_y)
+            
+            # Wait for key press to save data
+            key = cv2.waitKey(1) & 0xFF
+            if key != 255 and key != ord('q'): # Ignore non-alphanumeric keys
+                # Use key pressed as the label
+                label = chr(key).upper()
+                print(f"Captured data for sign: {label}")
+                data.append(landmarks_data)
+                labels.append(label)
+
+    cv2.imshow('Data Collection', frame)
+
+    if cv2.waitKey(5) & 0xFF == ord('q'):
+        break
+
+# Save the collected data
+with open('hand_gesture_data.pickle', 'wb') as f:
+    pickle.dump({'data': data, 'labels': labels}, f)
+
+cap.release()
+cv2.destroyAllWindows()
+print("Data collection finished and saved.")
+
+part-2:training the model
+import pickle
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import numpy as np
+
+# Load the dataset
+with open('hand_gesture_data.pickle', 'rb') as f:
+    dataset = pickle.load(f)
+
+data = np.asarray(dataset['data'])
+labels = np.asarray(dataset['labels'])
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, shuffle=True, stratify=labels)
+
+# Initialize and train the classifier
+model = RandomForestClassifier()
+model.fit(X_train, y_train)
+
+# Test the model
+y_predict = model.predict(X_test)
+accuracy = accuracy_score(y_test, y_predict)
+
+print(f'Model Accuracy: {accuracy * 100:.2f}%')
+
+# Save the trained model
+with open('sign_language_model.p', 'wb') as f:
+    pickle.dump(model, f)
+    
+print("Model trained and saved as sign_language_model.p")
+
+part-3:real time sign language interpreter
+import cv2
+import mediapipe as mp
+import numpy as np
+import pickle
+
+# Load the trained model
+with open('sign_language_model.p', 'rb') as f:
+    model = pickle.load(f)
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+
+cap = cv2.VideoCapture(0)
+
+# Dictionary to map predicted labels to sign names (optional, but good practice)
+labels_dict = {label: label for label in np.unique(model.classes_)}
+
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.flip(frame, 1)
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(frame_rgb)
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # Prepare landmark data for prediction
+            landmarks_data = []
+            x_coords = [lm.x for lm in hand_landmarks.landmark]
+            y_coords = [lm.y for lm in hand_landmarks.landmark]
+            base_x, base_y = x_coords[0], y_coords[0]
+
+            for i in range(len(hand_landmarks.landmark)):
+                landmarks_data.append(x_coords[i] - base_x)
+                landmarks_data.append(y_coords[i] - base_y)
+
+            # Predict the sign
+            prediction = model.predict([landmarks_data])
+            predicted_character = labels_dict[prediction[0]]
+            
+            # Get bounding box for the text
+            x_min = int(min(x_coords) * frame.shape[1]) - 10
+            y_min = int(min(y_coords) * frame.shape[0]) - 10
+
+            # Display the prediction on the screen
+            cv2.putText(frame, predicted_character, (x_min, y_min - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
+
+    cv2.imshow('Sign Language Interpreter', frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
