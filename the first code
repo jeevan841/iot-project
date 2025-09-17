@@ -173,3 +173,5 @@ while cap.isOpened():
 
 cap.release()
 cv2.destroyAllWindows()
+
+all the lines inthis code are to be looked over
